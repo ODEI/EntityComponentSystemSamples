@@ -2,7 +2,6 @@ using System;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
-using Unity.Physics.Systems;
 using Unity.Transforms;
 using UnityEngine;
 
@@ -32,8 +31,6 @@ struct PeriodicSpawnSettings : IComponentData, ISpawnSettings
     public int DeathRate;
 }
 
-[UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
-[UpdateBefore(typeof(BuildPhysicsWorld))]
 class PeriodicallySpawnRandomShapeSystem : SpawnRandomObjectsSystemBase<PeriodicSpawnSettings>
 {
     public int FrameCount = 0;

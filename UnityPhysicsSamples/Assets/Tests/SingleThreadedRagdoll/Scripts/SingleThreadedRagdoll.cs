@@ -23,8 +23,6 @@ public class SingleThreadedRagdoll : MonoBehaviour
 
     public bool DrawDebugInformation = false;
 
-    private List<BlobAssetReference<Collider>> m_CreatedColliders = null;
-
     static readonly System.Type k_DrawComponent = typeof(Unity.Physics.Authoring.DisplayBodyColliders)
         .GetNestedType("DrawComponent", BindingFlags.NonPublic);
     static readonly MethodInfo k_DrawComponent_DrawColliderEdges = k_DrawComponent
@@ -88,7 +86,7 @@ public class SingleThreadedRagdoll : MonoBehaviour
         SimulationStepInput input = new SimulationStepInput
         {
             World = PhysicsWorld,
-            TimeStep = World.DefaultGameObjectInjectionWorld.GetExistingSystem<FixedStepSimulationSystemGroup>().Timestep,
+            TimeStep = BasePhysicsDemo.DefaultWorld.GetExistingSystem<FixedStepSimulationSystemGroup>().Timestep,
             NumSolverIterations = PhysicsStep.Default.SolverIterationCount,
             SolverStabilizationHeuristicSettings = PhysicsStep.Default.SolverStabilizationHeuristicSettings,
             Gravity = PhysicsStep.Default.Gravity
@@ -335,13 +333,12 @@ public class SingleThreadedRagdoll : MonoBehaviour
     public void Start()
     {
         SimulationContext = new SimulationContext();
-        m_CreatedColliders = new List<BlobAssetReference<Collider>>();
 
 #if HAVOK_PHYSICS_EXISTS
         HavokSimulationContext = new Havok.Physics.SimulationContext(Havok.Physics.HavokConfiguration.Default);
 
         PhysicsStep stepComponent = PhysicsStep.Default;
-        var buildPhysicsWorld = World.DefaultGameObjectInjectionWorld.GetExistingSystem<Unity.Physics.Systems.BuildPhysicsWorld>();
+        var buildPhysicsWorld = BasePhysicsDemo.DefaultWorld.GetExistingSystem<Unity.Physics.Systems.BuildPhysicsWorld>();
         if (buildPhysicsWorld.HasSingleton<PhysicsStep>())
         {
             stepComponent = buildPhysicsWorld.GetSingleton<PhysicsStep>();
@@ -359,7 +356,7 @@ public class SingleThreadedRagdoll : MonoBehaviour
         for (int i = 0; i < basicBodyInfos.Length; i++)
         {
             var basicBodyInfo = basicBodyInfos[i];
-            var body = CreateBody(basicBodyInfo.gameObject, m_CreatedColliders);
+            var body = CreateBody(basicBodyInfo.gameObject);
             if (body.IsDynamic)
             {
                 m_NumDynamicBodies++;
@@ -423,11 +420,6 @@ public class SingleThreadedRagdoll : MonoBehaviour
         if (m_JointInfos.IsCreated)
         {
             m_JointInfos.Dispose();
-        }
-
-        for (int i = 0; i < m_CreatedColliders.Count; i++)
-        {
-            m_CreatedColliders[i].Dispose();
         }
 
         PhysicsWorld.Dispose();

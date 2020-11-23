@@ -3,14 +3,12 @@ using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Physics;
 
-public class FixedAngleGridScene : SceneCreationSettings {};
-
-public class FixedAngleGridDemo : SceneCreationAuthoring<FixedAngleGridScene> {}
-
-public class FixAngleGridDemoSystem : SceneCreationSystem<FixedAngleGridScene>
+public class FixedAngleGridDemo : BasePhysicsDemo
 {
-    public override void CreateScene(FixedAngleGridScene sceneSettings)
+    protected override void Start()
     {
+        base.Start();
+
         BlobAssetReference<Unity.Physics.Collider> collider = Unity.Physics.BoxCollider.Create(new BoxGeometry
         {
             Center = float3.zero,
@@ -18,7 +16,6 @@ public class FixAngleGridDemoSystem : SceneCreationSystem<FixedAngleGridScene>
             Size = new float3(0.25f),
             BevelRadius = 0.0f
         });
-        CreatedColliders.Add(collider);
 
         quaternion orientationA = quaternion.identity;
         bool identityA = true;

@@ -85,7 +85,8 @@ class SmoothlyTrackCameraTarget : SystemBase
 
         PhysicsWorld world = m_BuildPhysicsWorld.PhysicsWorld;
 
-        var timeAhead = (float)(Time.ElapsedTime - m_RecordMostRecentFixedTime.MostRecentElapsedTime);
+        var timestep = (float)m_RecordMostRecentFixedTime.MostRecentDeltaTime;
+        var timeAhead = Time.DeltaTime / timestep;
 
         Entities
             .WithName("SmoothlyTrackCameraTargetsJob")

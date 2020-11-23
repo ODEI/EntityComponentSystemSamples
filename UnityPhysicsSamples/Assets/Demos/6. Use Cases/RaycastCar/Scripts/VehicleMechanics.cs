@@ -47,36 +47,13 @@ namespace Demos
                 foreach (var wheel in m.wheels)
                 {
                     var wheelEntity = GetPrimaryEntity(wheel);
-
-                    // Assumed hierarchy:
-                    // - chassis
-                    //  - mechanics
-                    //   - suspension
-                    //    - wheel (rotates about yaw axis and translates along suspension up)
-                    //     - graphic (rotates about pitch axis)
-
-                    RigidTransform worldFromSuspension = new RigidTransform
-                    {
-                        pos = wheel.transform.parent.position,
-                        rot = wheel.transform.parent.rotation
-                    };
-
-                    RigidTransform worldFromChassis = new RigidTransform
-                    {
-                        pos = wheel.transform.parent.parent.parent.position,
-                        rot = wheel.transform.parent.parent.parent.rotation
-                    };
-
-                    var chassisFromSuspension = math.mul(math.inverse(worldFromChassis), worldFromSuspension);
-
                     DstEntityManager.AddComponentData(wheelEntity, new Wheel
                     {
                         Vehicle = entity,
                         GraphicalRepresentation = GetPrimaryEntity(wheel.transform.GetChild(0)), // assume wheel has a single child with rotating graphic
                         // TODO assume for now that driving/steering wheels also appear in this list
                         UsedForSteering = (byte)(m.steeringWheels.Contains(wheel) ? 1 : 0),
-                        UsedForDriving = (byte)(m.driveWheels.Contains(wheel) ? 1 : 0),
-                        ChassisFromSuspension = chassisFromSuspension
+                        UsedForDriving = (byte)(m.driveWheels.Contains(wheel) ? 1 : 0)
                     });
                 }
 
@@ -126,7 +103,6 @@ namespace Demos
         public Entity GraphicalRepresentation;
         public byte UsedForSteering;
         public byte UsedForDriving;
-        public RigidTransform ChassisFromSuspension;
     }
 
     [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
@@ -134,6 +110,8 @@ namespace Demos
     public class VehicleMechanicsSystem : SystemBase
     {
         BuildPhysicsWorld m_BuildPhysicsWorldSystem;
+
+        struct TransformsInitialized : ISystemStateComponentData {}
 
         protected override void OnCreate()
         {
@@ -146,6 +124,21 @@ namespace Demos
 
         protected override void OnUpdate()
         {
+            // ensure transform systems have run at least once so there are no NaN values
+            var commandBuffer = new EntityCommandBuffer(Allocator.TempJob);
+            Dependency = Entities
+                .WithName("InitializeWheelsJob")
+                .WithBurst()
+                .WithNone<TransformsInitialized>()
+                .ForEach((Entity entity, in Wheel wheel, in LocalToParent localToParent) =>
+                {
+                    if (!localToParent.Value.Equals(default))
+                        commandBuffer.AddComponent<TransformsInitialized>(entity);
+                }).Schedule(Dependency);
+            Dependency.Complete();
+            commandBuffer.Playback(EntityManager);
+            commandBuffer.Dispose();
+
             Dependency = m_BuildPhysicsWorldSystem.GetOutputDependency();
 
             // update vehicle properties first
@@ -173,17 +166,20 @@ namespace Demos
             var collisionWorld = world.CollisionWorld;
 
             // update each wheel
-            var commandBuffer = new EntityCommandBuffer(Allocator.TempJob);
+            commandBuffer = new EntityCommandBuffer(Allocator.TempJob);
+            // Dependency =
             Entities
                 .WithName("VehicleWheelsJob")
                 .WithBurst()
                 .WithReadOnly(collisionWorld)
+                .WithAll<TransformsInitialized>()
                 .ForEach((
-                    Entity entity, in Translation localPosition, in Rotation localRotation, in Wheel wheel
+                    Entity entity, in Wheel wheel, in LocalToWorld worldFromLocal, in LocalToParent parentFromLocal
                     ) =>
                     {
                         Entity ce = wheel.Vehicle;
                         if (ce == Entity.Null) return;
+
                         int ceIdx = world.GetRigidBodyIndex(ce);
                         if (-1 == ceIdx || ceIdx >= world.NumDynamicBodies) return;
 
@@ -212,24 +208,11 @@ namespace Demos
                             ? GetComponent<VehicleSteering>(ce).DesiredSteeringAngle
                             : 0f;
 
-                        RigidTransform worldFromChassis = new RigidTransform
-                        {
-                            pos = cePosition,
-                            rot = ceRotation
-                        };
-
-                        RigidTransform suspensionFromWheel = new RigidTransform
-                        {
-                            pos = localPosition.Value,
-                            rot = localRotation.Value
-                        };
-
-                        RigidTransform chassisFromWheel = math.mul(wheel.ChassisFromSuspension, suspensionFromWheel);
-                        RigidTransform worldFromLocal = math.mul(worldFromChassis, chassisFromWheel);
+                        float3 wheelCurrentPos = worldFromLocal.Position;
 
                         // create a raycast from the suspension point on the chassis
-                        var worldFromSuspension = math.mul(worldFromChassis, wheel.ChassisFromSuspension);
-                        float3 rayStart = worldFromSuspension.pos;
+                        var worldFromParent = math.mul(worldFromLocal.Value, math.inverse(parentFromLocal.Value));
+                        float3 rayStart = worldFromParent.c3.xyz;
                         float3 rayEnd = (-ceUp * (mechanics.suspensionLength + mechanics.wheelBase)) + rayStart;
 
                         if (mechanics.drawDebugInformation != 0)
@@ -258,12 +241,11 @@ namespace Demos
                         float3 weRight = ceRight;
                         float3 weForward = ceForward;
 
-                        // Assumed hierarchy:
-                        // - chassis
-                        //  - mechanics
-                        //   - suspension
-                        //    - wheel (rotates about yaw axis and translates along suspension up)
-                        //     - graphic (rotates about pitch axis)
+                        // graphical updates assume a hierarchy of the form:
+                        // - vehicle
+                        //  - suspension
+                        //   - wheel (rotates about yaw axis and translates along suspension up)
+                        //    - graphic (rotates about pitch axis)
 
                         #region handle wheel steering
                         {
@@ -301,11 +283,11 @@ namespace Demos
                         }
                         #endregion
 
-                        var parentFromWorld = math.inverse(worldFromSuspension);
+                        var parentFromWorld = math.mul(parentFromLocal.Value, math.inverse(worldFromLocal.Value));
                         if (!hit)
                         {
                             float3 wheelDesiredPos = (-ceUp * mechanics.suspensionLength) + rayStart;
-                            var worldPosition = math.lerp(worldFromLocal.pos, wheelDesiredPos, mechanics.suspensionDamping / mechanics.suspensionStrength);
+                            var worldPosition = math.lerp(wheelCurrentPos, wheelDesiredPos, mechanics.suspensionDamping / mechanics.suspensionStrength);
                             // update translation of wheels along suspension column
                             commandBuffer.SetComponent(entity, new Translation
                             {
@@ -319,7 +301,7 @@ namespace Demos
 
                             float3 wheelDesiredPos = math.lerp(rayStart, rayEnd, fraction);
                             // update translation of wheels along suspension column
-                            var worldPosition = math.lerp(worldFromLocal.pos, wheelDesiredPos, mechanics.suspensionDamping / mechanics.suspensionStrength);
+                            var worldPosition = math.lerp(wheelCurrentPos, wheelDesiredPos, mechanics.suspensionDamping / mechanics.suspensionStrength);
                             commandBuffer.SetComponent(entity, new Translation
                             {
                                 Value = math.mul(parentFromWorld, new float4(worldPosition, 1f)).xyz

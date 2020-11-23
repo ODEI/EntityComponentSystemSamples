@@ -13,10 +13,7 @@ namespace Unity.Physics.Samples.Test
         private StepPhysicsWorld m_StepPhysicsWorld;
         private ExportPhysicsWorld m_ExportPhysicsWorld;
         private EnsureHavokSystem m_EnsureHavokSystem;
-        private FixedStepSimulationSystemGroup m_FixedStepGroup;
-
         protected bool m_TestingFinished = false;
-        protected bool m_RecordingBegan = false;
 
         public int SimulatedFramesInCurrentTest = 0;
         public const int k_TestDurationInFrames = 100;
@@ -25,7 +22,6 @@ namespace Unity.Physics.Samples.Test
         {
             SimulatedFramesInCurrentTest = 0;
             Enabled = true;
-            m_FixedStepGroup.Enabled = true;
             m_ExportPhysicsWorld.Enabled = true;
             m_StepPhysicsWorld.Enabled = true;
             m_BuildPhysicsWorld.Enabled = true;
@@ -44,13 +40,11 @@ namespace Unity.Physics.Samples.Test
             m_StepPhysicsWorld = World.GetOrCreateSystem<StepPhysicsWorld>();
             m_ExportPhysicsWorld = World.GetOrCreateSystem<ExportPhysicsWorld>();
             m_EnsureHavokSystem = World.GetOrCreateSystem<EnsureHavokSystem>();
-            m_FixedStepGroup = World.GetOrCreateSystem<FixedStepSimulationSystemGroup>();
         }
 
         protected void FinishTesting()
         {
             SimulatedFramesInCurrentTest = 0;
-            m_FixedStepGroup.Enabled = false;
             m_ExportPhysicsWorld.Enabled = false;
             m_StepPhysicsWorld.Enabled = false;
             m_BuildPhysicsWorld.Enabled = false;
@@ -61,24 +55,16 @@ namespace Unity.Physics.Samples.Test
 
         protected override void OnUpdate()
         {
-            if (!m_RecordingBegan)
-            {
-                // > 1 because of default static body, logically should be > 0
-                m_RecordingBegan = m_BuildPhysicsWorld.PhysicsWorld.NumBodies > 1;
-            }
-            else
-            {
-                SimulatedFramesInCurrentTest++;
-                var handle = JobHandle.CombineDependencies(Dependency, m_ExportPhysicsWorld.GetOutputDependency());
+            SimulatedFramesInCurrentTest++;
+            var handle = JobHandle.CombineDependencies(Dependency, m_ExportPhysicsWorld.GetOutputDependency());
 
-                if (SimulatedFramesInCurrentTest == k_TestDurationInFrames)
-                {
-                    handle.Complete();
-                    FinishTesting();
-                }
-
-                Dependency = handle;
+            if (SimulatedFramesInCurrentTest == k_TestDurationInFrames)
+            {
+                handle.Complete();
+                FinishTesting();
             }
+
+            Dependency = handle;
         }
     }
 
