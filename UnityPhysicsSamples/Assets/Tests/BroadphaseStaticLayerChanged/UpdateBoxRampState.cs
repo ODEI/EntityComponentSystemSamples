@@ -1,7 +1,6 @@
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
-using Unity.Physics.Systems;
 using Unity.Transforms;
 using UnityEngine;
 
@@ -22,8 +21,6 @@ public class UpdateBoxRampState : MonoBehaviour, IConvertGameObjectToEntity
     }
 }
 
-[UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
-[UpdateBefore(typeof(BuildPhysicsWorld))]
 public class EntityUpdaterSystem : SystemBase
 {
     protected override void OnUpdate()

@@ -2,10 +2,12 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
-using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Physics;
+using Unity.Physics.Authoring;
+using Unity.Physics.Extensions;
+using Unity.Physics.Systems;
 using Unity.Rendering;
 using Unity.Transforms;
 using UnityEngine;
@@ -13,89 +15,68 @@ using Collider = Unity.Physics.Collider;
 using Material = UnityEngine.Material;
 using Mesh = UnityEngine.Mesh;
 
-public abstract class SceneCreationSettings : IComponentData
+/// <summary>
+/// Helper for demos set up in C# rather than in the editor
+/// </summary>
+public class BasePhysicsDemo : MonoBehaviour
 {
-    public Material DynamicMaterial;
-    public Material StaticMaterial;
-}
+    public static World DefaultWorld => World.DefaultGameObjectInjectionWorld;
 
-public class SceneCreatedTag : IComponentData {};
-
-
-// Base class of authoring components that create scene from code, using SceneCreationSystem
-public abstract class SceneCreationAuthoring<T> : MonoBehaviour, IConvertGameObjectToEntity
-    where T : SceneCreationSettings, new()
-{
-    public Material DynamicMaterial;
-    public Material StaticMaterial;
-
-    public virtual void Convert(Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+    public static void ResetDefaultWorld()
     {
-        T sceneSettings = new T
+        DefaultWorld.EntityManager.CompleteAllJobs();
+        foreach (var system in DefaultWorld.Systems)
         {
-            DynamicMaterial = DynamicMaterial,
-            StaticMaterial = StaticMaterial
-        };
-        dstManager.AddComponentData(entity, sceneSettings);
-    }
-}
+            system.Enabled = false;
+        }
 
-[UpdateInGroup(typeof(InitializationSystemGroup))]
-public abstract class SceneCreationSystem<T> : SystemBase
-    where T : SceneCreationSettings
-{
-    private EntityQuery m_ScenesToCreateQuery;
-
-    protected Material DynamicMaterial;
-    protected Material StaticMaterial;
-
-    public NativeList<BlobAssetReference<Collider>> CreatedColliders;
-
-    protected override void OnCreate()
-    {
-        CreatedColliders = new NativeList<BlobAssetReference<Collider>>(Allocator.Persistent);
-
-        m_ScenesToCreateQuery = GetEntityQuery(new EntityQueryDesc
-        {
-            All = new ComponentType[] { typeof(T) },
-            None = new ComponentType[] { typeof(SceneCreatedTag) },
-        });
-        RequireForUpdate(GetEntityQuery(new ComponentType[] { typeof(T) }));
+        DefaultWorld.Dispose();
+        DefaultWorldInitialization.Initialize("Default World", false);
     }
 
-    protected override void OnUpdate()
+    public Material dynamicMaterial;
+    public Material staticMaterial;
+
+    protected void init()
     {
-        if (m_ScenesToCreateQuery.CalculateEntityCount() == 0) return;
+        // Load assets
+        //dynamicMaterial = (Material)Resources.Load("Materials/PhysicsDynamicMaterial");
+        //staticMaterial = (Material)Resources.Load("Materials/PhysicsStaticMaterial");
+    }
 
-        using (var entities = m_ScenesToCreateQuery.ToEntityArray(Allocator.TempJob))
+#if !UNITY_EDITOR
+    void OnEnable()
+    {
+        Application.logMessageReceivedThreaded += HandleLogEntry;
+    }
+
+    void HandleLogEntry(string logEntry, string stackTrace, LogType logType)
+    {
+        if (logType == LogType.Exception)
         {
-            foreach (Entity entity in entities)
-            {
-                T settings = EntityManager.GetComponentObject<T>(entity);
-                DynamicMaterial = settings.DynamicMaterial;
-                StaticMaterial = settings.StaticMaterial;
-
-                CreateScene(settings);
-                EntityManager.AddComponentData(entity, new SceneCreatedTag());
-            }
+            // Log exception and exit with non-zero error code
+            UnityEngine.Debug.Log($"Caught an exception, exiting... \n {logEntry} \n {stackTrace}");
+            Application.Quit(1);
         }
     }
 
-    protected override void OnDestroy()
+    void OnDisable()
     {
-        foreach (var collider in CreatedColliders)
-        {
-            if (collider.IsCreated)
-                collider.Dispose();
-        }
-
-        CreatedColliders.Dispose();
+        Application.logMessageReceivedThreaded -= HandleLogEntry;
     }
 
-    public abstract void CreateScene(T sceneSettings);
+#endif
 
-    #region Utilities
+    protected virtual void Start()
+    {
+        init();
+    }
 
+    //
+    // Object creation
+    //
+
+    // TODO: add proper utility APIs for converting Collider into buffers usable for UnityEngine.Mesh and for drawing lines
     static readonly Type k_DrawComponent = typeof(Unity.Physics.Authoring.DisplayBodyColliders)
         .GetNestedType("DrawComponent", BindingFlags.NonPublic);
 
@@ -107,7 +88,7 @@ public abstract class SceneCreationSystem<T> : SystemBase
     static readonly FieldInfo k_DisplayResultsMesh = k_DisplayResult.GetField("Mesh");
     static readonly PropertyInfo k_DisplayResultsTransform = k_DisplayResult.GetProperty("Transform");
 
-    public static void CreateRenderMeshForCollider(
+    internal static void CreateRenderMeshForCollider(
         EntityManager entityManager, Entity entity, BlobAssetReference<Collider> collider, Material material
     )
     {
@@ -136,10 +117,10 @@ public abstract class SceneCreationSystem<T> : SystemBase
         entityManager.AddComponentData(entity, new RenderBounds { Value = mesh.bounds.ToAABB() });
     }
 
-    public Entity CreateBody(float3 position, quaternion orientation, BlobAssetReference<Collider> collider,
+    Entity CreateBody(float3 position, quaternion orientation, BlobAssetReference<Collider> collider,
         float3 linearVelocity, float3 angularVelocity, float mass, bool isDynamic)
     {
-        var entityManager = World.DefaultGameObjectInjectionWorld.EntityManager;
+        var entityManager = DefaultWorld.EntityManager;
 
         Entity entity = entityManager.CreateEntity(new ComponentType[] {});
 
@@ -150,7 +131,7 @@ public abstract class SceneCreationSystem<T> : SystemBase
         var colliderComponent = new PhysicsCollider { Value = collider };
         entityManager.AddComponentData(entity, colliderComponent);
 
-        CreateRenderMeshForCollider(entityManager, entity, collider, isDynamic ? DynamicMaterial : StaticMaterial);
+        CreateRenderMeshForCollider(entityManager, entity, collider, isDynamic ? dynamicMaterial : staticMaterial);
 
         if (isDynamic)
         {
@@ -172,20 +153,20 @@ public abstract class SceneCreationSystem<T> : SystemBase
         return entity;
     }
 
-    public Entity CreateStaticBody(float3 position, quaternion orientation, BlobAssetReference<Collider> collider)
+    protected Entity CreateStaticBody(float3 position, quaternion orientation, BlobAssetReference<Collider> collider)
     {
         return CreateBody(position, orientation, collider, float3.zero, float3.zero, 0.0f, false);
     }
 
-    public Entity CreateDynamicBody(float3 position, quaternion orientation, BlobAssetReference<Collider> collider,
+    protected Entity CreateDynamicBody(float3 position, quaternion orientation, BlobAssetReference<Collider> collider,
         float3 linearVelocity, float3 angularVelocity, float mass)
     {
         return CreateBody(position, orientation, collider, linearVelocity, angularVelocity, mass, true);
     }
 
-    public Entity CreateJoint(PhysicsJoint joint, Entity entityA, Entity entityB, bool enableCollision = false)
+    protected Entity CreateJoint(PhysicsJoint joint, Entity entityA, Entity entityB, bool enableCollision = false)
     {
-        var entityManager = World.DefaultGameObjectInjectionWorld.EntityManager;
+        var entityManager = DefaultWorld.EntityManager;
         ComponentType[] componentTypes =
         {
             typeof(PhysicsConstrainedBodyPair),
@@ -199,13 +180,11 @@ public abstract class SceneCreationSystem<T> : SystemBase
         return jointEntity;
     }
 
-    public static RigidTransform GetBodyTransform(Entity entity)
+    protected RigidTransform GetBodyTransform(Entity entity)
     {
-        var entityManager = World.DefaultGameObjectInjectionWorld.EntityManager;
+        var entityManager = DefaultWorld.EntityManager;
         return new RigidTransform(
             entityManager.GetComponentData<Rotation>(entity).Value,
             entityManager.GetComponentData<Translation>(entity).Value);
     }
-
-    #endregion
 }

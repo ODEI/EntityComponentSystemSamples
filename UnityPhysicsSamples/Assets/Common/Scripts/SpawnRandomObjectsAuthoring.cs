@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
-using Unity.Physics.Systems;
 using Unity.Transforms;
 using UnityEngine;
 
@@ -60,8 +59,6 @@ class SpawnRandomObjectsSystem : SpawnRandomObjectsSystemBase<SpawnSettings>
 {
 }
 
-[UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
-[UpdateBefore(typeof(BuildPhysicsWorld))]
 abstract class SpawnRandomObjectsSystemBase<T> : SystemBase where T : struct, IComponentData, ISpawnSettings
 {
     internal virtual int GetRandomSeed(T spawnSettings)

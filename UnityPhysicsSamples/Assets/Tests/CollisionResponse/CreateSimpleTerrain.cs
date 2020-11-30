@@ -4,14 +4,13 @@ using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Physics;
 using Unity.Transforms;
+using UnityEngine;
 
-public class CreateSimpleTerrainScene : SceneCreationSettings {}
-
-public class CreateSimpleTerrain : SceneCreationAuthoring<CreateSimpleTerrainScene> {}
-
-public class CreateSimpleTerrainSystem : SceneCreationSystem<CreateSimpleTerrainScene>
+public class CreateSimpleTerrain : MonoBehaviour
 {
-    public override void CreateScene(CreateSimpleTerrainScene sceneSettings)
+    public UnityEngine.Material material;
+
+    void Start()
     {
         int2 size = new int2(2, 2);
         float3 scale = new float3(10, 1.0f, 10);
@@ -23,23 +22,21 @@ public class CreateSimpleTerrainSystem : SceneCreationSystem<CreateSimpleTerrain
             heights[3] = 0;
         }
 
-        var collider = TerrainCollider.Create(heights, size, scale, TerrainCollider.CollisionMethod.VertexSamples);
-        CreatedColliders.Add(collider);
+        var collider = Unity.Physics.TerrainCollider.Create(heights, size, scale, Unity.Physics.TerrainCollider.CollisionMethod.VertexSamples);
         float3 position = new float3(15.0f, -1.0f, -5.0f);
         CreateTerrainBody(position, collider);
 
         // Mark this one CollisionResponse.None
-        collider = TerrainCollider.Create(heights, size, scale, TerrainCollider.CollisionMethod.VertexSamples);
-        CreatedColliders.Add(collider);
+        collider = Unity.Physics.TerrainCollider.Create(heights, size, scale, Unity.Physics.TerrainCollider.CollisionMethod.VertexSamples);
         unsafe
         {
-            ((TerrainCollider*)collider.GetUnsafePtr())->Material.CollisionResponse = CollisionResponsePolicy.None;
+            ((Unity.Physics.TerrainCollider*)collider.GetUnsafePtr())->Material.CollisionResponse = CollisionResponsePolicy.None;
         }
         position = new float3(15.0f, -1.0f, 10.0f);
         CreateTerrainBody(position, collider);
     }
 
-    void CreateTerrainBody(float3 position, BlobAssetReference<Collider> collider)
+    void CreateTerrainBody(float3 position, BlobAssetReference<Unity.Physics.Collider> collider)
     {
         var entityManager = World.DefaultGameObjectInjectionWorld.EntityManager;
 
@@ -52,6 +49,6 @@ public class CreateSimpleTerrainSystem : SceneCreationSystem<CreateSimpleTerrain
         var colliderComponent = new PhysicsCollider { Value = collider };
         entityManager.AddComponentData(entity, colliderComponent);
 
-        CreateRenderMeshForCollider(entityManager, entity, collider, StaticMaterial);
+        BasePhysicsDemo.CreateRenderMeshForCollider(entityManager, entity, collider, material);
     }
 }
